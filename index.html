@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>數獨</title>
+<style>
+  :root {
+    --bg: #f4f1ea; --panel: #fff; --ink: #2b2b2b; --muted: #888;
+    --line: #2b2b2b; --thin: #c9c4b8; --given: #2b2b2b; --user: #2f6fd6;
+    --sel: #ffe9a8; --peer: #f3ecd9; --same: #ffd56b; --err: #e04848; --ok: #3a9d5d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink);
+    font-family: "Segoe UI", "Microsoft JhengHei", "PingFang TC", sans-serif;
+    display: flex; justify-content: center; align-items: flex-start; padding: 24px 12px;
+  }
+  .app { width: 100%; max-width: 500px; }
+  h1 { margin: 0 0 12px; font-size: 28px; text-align: center; letter-spacing: 4px; }
+  .card { background: var(--panel); border-radius: 14px; padding: 14px; box-shadow: 0 2px 10px rgba(0,0,0,.08); margin-bottom: 12px; }
+  .levels { display: flex; gap: 6px; flex-wrap: wrap; }
+  .levels button { flex: 1; min-width: 70px; }
+  button {
+    font: inherit; border: 1px solid var(--thin); background: #fff; color: var(--ink);
+    border-radius: 8px; padding: 8px 10px; cursor: pointer; transition: background .15s;
+  }
+  button:hover { background: #f6f2e6; }
+  button.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+  .slider-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 14px; }
+  .slider-row input { flex: 1; }
+  .hint-text { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .status { display: flex; justify-content: space-between; font-size: 15px; margin: 0 4px 8px; }
+  .status .lvl { font-weight: 600; }
+  .board {
+    display: grid; grid-template-columns: repeat(9, 1fr); aspect-ratio: 1;
+    border: 3px solid var(--line); border-radius: 6px; overflow: hidden; background: #fff;
+    user-select: none;
+  }
+  .cell {
+    position: relative; display: flex; align-items: center; justify-content: center;
+    border-right: 1px solid var(--thin); border-bottom: 1px solid var(--thin);
+    font-size: clamp(18px, 5.5vw, 28px); cursor: pointer; color: var(--user);
+  }
+  .cell:nth-child(9n) { border-right: none; }
+  .cell.c2, .cell.c5 { border-right: 2px solid var(--line); }
+  .cell.r2, .cell.r5 { border-bottom: 2px solid var(--line); }
+  .cell.r8 { border-bottom: none; }
+  .cell.given { color: var(--given); font-weight: 600; }
+  .cell.peer { background: var(--peer); }
+  .cell.same { background: var(--same); }
+  .cell.sel { background: var(--sel); }
+  .cell.err { color: var(--err); }
+  .cell.err.given { color: var(--given); }
+  .cell.conflict { box-shadow: inset 0 0 0 2px var(--err); }
+  .notes {
+    position: absolute; inset: 2px; display: grid; grid-template-columns: repeat(3,1fr);
+    font-size: clamp(8px, 2vw, 11px); color: var(--muted); line-height: 1;
+  }
+  .notes span { display: flex; align-items: center; justify-content: center; }
+  .tools { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 12px; }
+  .tools button { font-size: 13px; padding: 8px 4px; }
+  .pad { display: grid; grid-template-columns: repeat(9, 1fr); gap: 5px; margin-top: 10px; }
+  .pad button { font-size: 20px; padding: 8px 0; position: relative; }
+  .pad button small { position: absolute; right: 3px; bottom: 1px; font-size: 9px; color: var(--muted); }
+  .pad button.done { opacity: .3; }
+  .options { display: flex; gap: 14px; flex-wrap: wrap; font-size: 13px; margin-top: 10px; color: #555; }
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none;
+    align-items: center; justify-content: center; z-index: 10;
+  }
+  .overlay.show { display: flex; }
+  .modal { background: #fff; border-radius: 14px; padding: 24px 28px; text-align: center; max-width: 320px; }
+  .modal h2 { margin: 0 0 8px; }
+  .modal p { margin: 6px 0 16px; color: #555; }
+  .loading { text-align: center; padding: 20px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>數 獨</h1>
+
+  <div class="card">
+    <div class="levels" id="levels">
+      <button data-clues="42">簡單</button>
+      <button data-clues="34" class="active">中等</button>
+      <button data-clues="28">困難</button>
+      <button data-clues="24">專家</button>
+    </div>
+    <div class="slider-row">
+      <span>自訂提示數</span>
+      <input type="range" id="clueSlider" min="22" max="55" value="34">
+      <b id="clueVal">34</b>
+    </div>
+    <div class="hint-text">提示數越少越難（22 最難、55 最簡單）。每題都保證只有唯一解。</div>
+    <div style="margin-top:10px; display:flex; gap:6px;">
+      <button id="newBtn" style="flex:1; font-weight:600;">開新遊戲</button>
+      <button id="restartBtn">重來這題</button>
+    </div>
+  </div>
+
+  <div class="status">
+    <span class="lvl" id="lvlLabel">中等</span>
+    <span>錯誤：<b id="mistakes">0</b> / <span id="maxMist">3</span></span>
+    <span>⏱ <b id="timer">00:00</b></span>
+  </div>
+
+  <div class="board" id="board"></div>
+
+  <div class="tools">
+    <button id="undoBtn">↶ 復原</button>
+    <button id="eraseBtn">⌫ 清除</button>
+    <button id="noteBtn">✎ 筆記</button>
+    <button id="hintBtn">💡 提示</button>
+    <button id="checkBtn">✓ 檢查</button>
+  </div>
+
+  <div class="pad" id="pad"></div>
+
+  <div class="options">
+    <label><input type="checkbox" id="optAuto" checked> 即時標出錯誤</label>
+    <label><input type="checkbox" id="optLimit" checked> 錯 3 次結束</label>
+    <label><input type="checkbox" id="optHL" checked> 高亮相同數字</label>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h2 id="mTitle"></h2>
+    <p id="mText"></p>
+    <button id="mBtn" class="active">再來一局</button>
+  </div>
+</div>
+
+<script>
+// ===== 數獨核心：產生與求解 =====
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.random() * (i + 1) | 0; [a[i], a[j]] = [a[j], a[i]]; } return a; };
+const rowOf = i => (i / 9) | 0, colOf = i => i % 9, boxOf = i => ((rowOf(i) / 3) | 0) * 3 + ((colOf(i) / 3) | 0);
+const PEERS = Array.from({ length: 81 }, (_, i) => {
+  const s = new Set();
+  for (let j = 0; j < 81; j++) if (j !== i && (rowOf(j) === rowOf(i) || colOf(j) === colOf(i) || boxOf(j) === boxOf(i))) s.add(j);
+  return [...s];
+});
+
+function canPlace(g, i, v) {
+  for (const p of PEERS[i]) if (g[p] === v) return false;
+  return true;
+}
+
+// 產生一個完整的解
+function fillGrid(g) {
+  const i = g.indexOf(0);
+  if (i < 0) return true;
+  for (const v of shuffle([1,2,3,4,5,6,7,8,9])) {
+    if (canPlace(g, i, v)) { g[i] = v; if (fillGrid(g)) return true; g[i] = 0; }
+  }
+  return false;
+}
+
+// 計算解的數量（最多數到 limit），用位元遮罩加速，並優先填候選最少的格子
+function countSolutions(grid, limit = 2) {
+  const g = grid.slice();
+  const rows = new Array(9).fill(0), cols = new Array(9).fill(0), boxes = new Array(9).fill(0);
+  for (let i = 0; i < 81; i++) if (g[i]) {
+    const b = 1 << g[i]; rows[rowOf(i)] |= b; cols[colOf(i)] |= b; boxes[boxOf(i)] |= b;
+  }
+  let count = 0;
+  (function solve() {
+    let best = -1, bestMask = 0, bestCnt = 10;
+    for (let i = 0; i < 81; i++) if (!g[i]) {
+      const mask = ~(rows[rowOf(i)] | cols[colOf(i)] | boxes[boxOf(i)]) & 0x3FE;
+      let c = 0, m = mask; while (m) { m &= m - 1; c++; }
+      if (c < bestCnt) { best = i; bestMask = mask; bestCnt = c; if (c <= 1) break; }
+    }
+    if (best < 0) { count++; return; }
+    if (bestCnt === 0) return;
+    const r = rowOf(best), c = colOf(best), bx = boxOf(best);
+    for (let v = 1; v <= 9; v++) if (bestMask & (1 << v)) {
+      const b = 1 << v;
+      g[best] = v; rows[r] |= b; cols[c] |= b; boxes[bx] |= b;
+      solve();
+      g[best] = 0; rows[r] &= ~b; cols[c] &= ~b; boxes[bx] &= ~b;
+      if (count >= limit) return;
+    }
+  })();
+  return count;
+}
+
+// 依目標提示數挖洞，保證唯一解；提示數很少時多試幾次，取最接近目標的一題（最多約 1.5 秒）
+function generate(targetClues) {
+  const start = performance.now();
+  let best = null;
+  do {
+    const r = generateOnce(targetClues);
+    if (!best || r.clues < best.clues) best = r;
+  } while (best.clues > targetClues && performance.now() - start < 1500);
+  return best;
+}
+
+function generateOnce(targetClues) {
+  const solution = new Array(81).fill(0);
+  fillGrid(solution);
+  const puzzle = solution.slice();
+  let clues = 81;
+  for (const i of shuffle([...Array(81).keys()])) {
+    if (clues <= targetClues) break;
+    const backup = puzzle[i];
+    puzzle[i] = 0;
+    if (countSolutions(puzzle, 2) !== 1) puzzle[i] = backup;
+    else clues--;
+  }
+  return { puzzle, solution, clues };
+}
+
+// ===== 遊戲狀態 =====
+const $ = id => document.getElementById(id);
+const boardEl = $('board'), padEl = $('pad');
+let S = null;           // 目前遊戲
+let selected = -1, noteMode = false, timerId = null;
+let targetClues = 34, levelName = '中等';
+
+const cells = [];
+for (let i = 0; i < 81; i++) {
+  const d = document.createElement('div');
+  d.className = `cell r${rowOf(i)} c${colOf(i)}`;
+  d.addEventListener('click', () => select(i));
+  boardEl.appendChild(d); cells.push(d);
+}
+for (let v = 1; v <= 9; v++) {
+  const b = document.createElement('button');
+  b.innerHTML = `${v}<small></small>`;
+  b.addEventListener('click', () => input(v));
+  padEl.appendChild(b);
+}
+
+function levelFor(n) {
+  if (n >= 40) return '簡單'; if (n >= 32) return '中等'; if (n >= 26) return '困難'; return '專家';
+}
+
+function newGame() {
+  boardEl.style.opacity = .4;
+  setTimeout(() => {
+    const { puzzle, solution, clues } = generate(targetClues);
+    S = {
+      puzzle, solution, clues,
+      values: puzzle.slice(),
+      notes: Array.from({ length: 81 }, () => new Set()),
+      history: [], mistakes: 0, seconds: 0, over: false,
+    };
+    $('lvlLabel').textContent = `${levelName}（${clues} 提示）`;
+    selected = -1;
+    boardEl.style.opacity = 1;
+    startTimer(); render();
+  }, 20);
+}
+
+function restart() {
+  if (!S) return;
+  S.values = S.puzzle.slice();
+  S.notes = Array.from({ length: 81 }, () => new Set());
+  S.history = []; S.mistakes = 0; S.seconds = 0; S.over = false;
+  selected = -1; startTimer(); render();
+}
+
+function startTimer() {
+  clearInterval(timerId);
+  timerId = setInterval(() => { if (S && !S.over && !document.hidden) { S.seconds++; renderTimer(); } }, 1000);
+  renderTimer();
+}
+const fmt = s => `${String((s / 60) | 0).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+function renderTimer() { $('timer').textContent = fmt(S ? S.seconds : 0); }
+
+function select(i) { selected = i; render(); }
+
+function pushHistory(i) {
+  S.history.push({ i, value: S.values[i], notes: new Set(S.notes[i]), mistakes: S.mistakes,
+    peerNotes: PEERS[i].map(p => [p, new Set(S.notes[p])]) });
+}
+
+function input(v) {
+  if (!S || S.over || selected < 0 || S.puzzle[selected]) return;
+  const i = selected;
+  if (noteMode) {
+    if (S.values[i]) return;
+    pushHistory(i);
+    S.notes[i].has(v) ? S.notes[i].delete(v) : S.notes[i].add(v);
+  } else {
+    if (S.values[i] === v) return;
+    pushHistory(i);
+    S.values[i] = v; S.notes[i].clear();
+    if (v !== S.solution[i]) {
+      if ($('optAuto').checked) S.mistakes++;
+    } else {
+      for (const p of PEERS[i]) S.notes[p].delete(v); // 自動清掉同行列宮的筆記
+    }
+  }
+  render(); checkEnd();
+}
+
+function erase() {
+  if (!S || S.over || selected < 0 || S.puzzle[selected]) return;
+  if (!S.values[selected] && !S.notes[selected].size) return;
+  pushHistory(selected);
+  S.values[selected] = 0; S.notes[selected].clear();
+  render();
+}
+
+function undo() {
+  if (!S || S.over || !S.history.length) return;
+  const h = S.history.pop();
+  S.values[h.i] = h.value; S.notes[h.i] = h.notes; S.mistakes = h.mistakes;
+  for (const [p, n] of h.peerNotes) S.notes[p] = n;
+  selected = h.i; render();
+}
+
+function hint() {
+  if (!S || S.over) return;
+  let i = selected;
+  if (i < 0 || S.puzzle[i] || S.values[i] === S.solution[i]) {
+    const empties = [];
+    for (let k = 0; k < 81; k++) if (S.values[k] !== S.solution[k]) empties.push(k);
+    if (!empties.length) return;
+    i = empties[Math.random() * empties.length | 0];
+  }
+  pushHistory(i);
+  S.values[i] = S.solution[i]; S.notes[i].clear();
+  for (const p of PEERS[i]) S.notes[p].delete(S.solution[i]);
+  S.seconds += 30; // 用提示加 30 秒
+  selected = i; render(); checkEnd();
+}
+
+function check() {
+  if (!S) return;
+  let wrong = 0;
+  for (let i = 0; i < 81; i++) if (S.values[i] && S.values[i] !== S.solution[i]) { wrong++; cells[i].classList.add('conflict'); }
+  setTimeout(() => cells.forEach(c => c.classList.remove('conflict')), 1500);
+  const empty = S.values.filter(v => !v).length;
+  showToast(wrong ? `有 ${wrong} 格填錯了（紅框標示）` : `目前都正確！還剩 ${empty} 格`);
+}
+
+function checkEnd() {
+  if (S.values.every((v, i) => v === S.solution[i])) {
+    S.over = true; clearInterval(timerId);
+    modal('🎉 完成了！', `難度：${levelName}　用時 ${fmt(S.seconds)}　錯誤 ${S.mistakes} 次`);
+  } else if ($('optLimit').checked && $('optAuto').checked && S.mistakes >= 3) {
+    S.over = true; clearInterval(timerId);
+    modal('遊戲結束', '已經錯 3 次了，再挑戰一次吧！');
+  }
+}
+
+function modal(t, txt) { $('mTitle').textContent = t; $('mText').textContent = txt; $('overlay').classList.add('show'); }
+
+let toastTimer;
+function showToast(msg) {
+  let t = $('toast');
+  if (!t) {
+    t = document.createElement('div'); t.id = 'toast';
+    t.style.cssText = 'position:fixed;left:50%;bottom:30px;transform:translateX(-50%);background:#2b2b2b;color:#fff;padding:10px 18px;border-radius:20px;font-size:14px;z-index:20;transition:opacity .3s';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg; t.style.opacity = 1;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.style.opacity = 0, 1800);
+}
+
+// ===== 畫面 =====
+function render() {
+  if (!S) return;
+  const selVal = selected >= 0 ? S.values[selected] : 0;
+  const hl = $('optHL').checked, auto = $('optAuto').checked;
+  for (let i = 0; i < 81; i++) {
+    const c = cells[i], v = S.values[i];
+    c.className = `cell r${rowOf(i)} c${colOf(i)}`;
+    if (S.puzzle[i]) c.classList.add('given');
+    if (selected >= 0) {
+      if (i === selected) c.classList.add('sel');
+      else if (hl && selVal && v === selVal) c.classList.add('same');
+      else if (PEERS[selected].includes(i)) c.classList.add('peer');
+    }
+    if (auto && v && v !== S.solution[i]) c.classList.add('err');
+    if (v) c.textContent = v;
+    else if (S.notes[i].size) {
+      c.innerHTML = '<div class="notes">' + [1,2,3,4,5,6,7,8,9].map(n => `<span>${S.notes[i].has(n) ? n : ''}</span>`).join('') + '</div>';
+    } else c.textContent = '';
+  }
+  // 數字鍵盤上顯示剩餘數量
+  [...padEl.children].forEach((b, k) => {
+    const v = k + 1;
+    const left = 9 - S.values.filter((x, i) => x === v && x === S.solution[i]).length;
+    b.querySelector('small').textContent = left || '';
+    b.classList.toggle('done', left === 0);
+  });
+  $('mistakes').textContent = S.mistakes;
+  $('maxMist').textContent = $('optLimit').checked ? '3' : '∞';
+  $('noteBtn').classList.toggle('active', noteMode);
+}
+
+// ===== 事件 =====
+document.querySelectorAll('#levels button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#levels button').forEach(x => x.classList.remove('active'));
+  b.classList.add('active');
+  targetClues = +b.dataset.clues; levelName = b.textContent;
+  $('clueSlider').value = targetClues; $('clueVal').textContent = targetClues;
+  newGame();
+}));
+$('clueSlider').addEventListener('input', e => { $('clueVal').textContent = e.target.value; });
+$('clueSlider').addEventListener('change', e => {
+  targetClues = +e.target.value; levelName = levelFor(targetClues);
+  document.querySelectorAll('#levels button').forEach(x => x.classList.toggle('active', +x.dataset.clues === targetClues));
+  newGame();
+});
+$('newBtn').addEventListener('click', newGame);
+$('restartBtn').addEventListener('click', restart);
+$('undoBtn').addEventListener('click', undo);
+$('eraseBtn').addEventListener('click', erase);
+$('noteBtn').addEventListener('click', () => { noteMode = !noteMode; render(); });
+$('hintBtn').addEventListener('click', hint);
+$('checkBtn').addEventListener('click', check);
+['optAuto', 'optLimit', 'optHL'].forEach(id => $(id).addEventListener('change', render));
+$('mBtn').addEventListener('click', () => { $('overlay').classList.remove('show'); newGame(); });
+
+document.addEventListener('keydown', e => {
+  if ($('overlay').classList.contains('show')) return;
+  const k = e.key;
+  if (k >= '1' && k <= '9') input(+k);
+  else if (k === 'Backspace' || k === 'Delete' || k === '0') erase();
+  else if (k === 'n' || k === 'N') { noteMode = !noteMode; render(); }
+  else if ((e.ctrlKey || e.metaKey) && (k === 'z' || k === 'Z')) { e.preventDefault(); undo(); }
+  else if (k.startsWith('Arrow')) {
+    e.preventDefault();
+    if (selected < 0) selected = 40;
+    else {
+      let r = rowOf(selected), c = colOf(selected);
+      if (k === 'ArrowUp') r = (r + 8) % 9; if (k === 'ArrowDown') r = (r + 1) % 9;
+      if (k === 'ArrowLeft') c = (c + 8) % 9; if (k === 'ArrowRight') c = (c + 1) % 9;
+      selected = r * 9 + c;
+    }
+    render();
+  }
+});
+
+newGame();
+</script>
+</body>
+</html>
